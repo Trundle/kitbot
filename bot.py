@@ -11,6 +11,7 @@
 """
 
 from __future__ import with_statement
+import codecs
 import os
 from datetime import datetime
 
@@ -80,7 +81,7 @@ class LogViewPage(Resource):
         except ClassNotFound:
             style = get_style_by_name('default')
         formatter = HtmlFormatter(full=True, style=style)
-        with open(self.logfilename, 'r') as logfile:
+        with codecs.open(self.logfilename, 'r', 'utf-8') as logfile:
             html = highlight(logfile.read(), IrcLogsLexer(), formatter)
         request.setHeader('Content-Type', 'text/html;charset=utf-8')
         return html.encode('utf-8')
