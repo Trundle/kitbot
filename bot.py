@@ -20,11 +20,9 @@ from pygments.lexers.text import IrcLogsLexer
 from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 from twisted.cred.portal import IRealm
-from twisted.internet.defer import inlineCallbacks
 from twisted.python.logfile import DailyLogFile
 from twisted.web.error import NoResource
 from twisted.web.resource import IResource, Resource
-from twisted.words.protocols.jabber import jid
 from wokkel import muc
 from wokkel.xmppim import AvailablePresence
 from zope.interface import implements
