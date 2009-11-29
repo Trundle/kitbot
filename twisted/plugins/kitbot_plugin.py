@@ -28,7 +28,7 @@ class Options(usage.Options, AuthOptionMixin):
         ('room', 'r', 'kit@conference.example.org/Kitty', 'The room to join'),
         ('room-password', None, '', "The room's password."),
         ('logpath', 'p', '.', 'Path where logs are written to'),
-        ('http-port', None, 8080, 'Port of HTTPd for log views')
+        ('http-port', None, 8080, 'Port of HTTPd for log views', int)
     ]
 
     supportedInterfaces = (IUsernamePassword, )
@@ -63,8 +63,7 @@ class KITBotMaker(object):
         root.putChild('', Redirect('/%s/view/' % (str(room_jid.user, ))))
         root.putChild(room_jid.user, resource)
 
-        httpd_log_view = internet.TCPServer(int(options['http-port']),
-                                            Site(root))
+        httpd_log_view = internet.TCPServer(options['http-port'], Site(root))
         httpd_log_view.setServiceParent(bot)
 
         return bot
