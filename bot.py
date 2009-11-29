@@ -13,7 +13,7 @@
 from __future__ import with_statement
 import codecs
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -63,17 +63,26 @@ class LogViewRealm(object):
 
 
 class LogViewPage(Resource):
-    def __init__(self, logfilename, style_name='default'):
+    def __init__(self, logfilename, style_name='default', days_back=None):
         Resource.__init__(self)
         self.logfilename = logfilename
         self.style_name = style_name
+        self.days_back = days_back
 
     def getChild(self, name, request):
-        if '.' in name:
-            return NoResource()
-        page = LogViewPage(self.logfilename, name)
-        page.isLeaf = True
-        return page
+        try:
+            name = int(name)
+        except ValueError:
+            if '.' in name:
+                return NoResource()
+            page = LogViewPage(self.logfilename, name, self.days_back)
+            page.isLeaf = True
+            return page
+        else:
+            if self.days_back is not None:
+                # This is ambiguous, we can only get one day parameter
+                return NoResource()
+            return LogViewPage(self.logfilename, self.style_name, name)
 
     def render_GET(self, request):
         try:
@@ -81,8 +90,16 @@ class LogViewPage(Resource):
         except ClassNotFound:
             style = get_style_by_name('default')
         formatter = HtmlFormatter(full=True, style=style)
-        with codecs.open(self.logfilename, 'r', 'utf-8') as logfile:
-            html = highlight(logfile.read(), IrcLogsLexer(), formatter)
+
+        if self.days_back:
+            log_date = date.today() - timedelta(self.days_back)
+            self.logfilename += log_date.strftime('.%Y_%m_%d')
+        try:
+            with codecs.open(self.logfilename, 'r', 'utf-8') as logfile:
+                html = highlight(logfile.read(), IrcLogsLexer(), formatter)
+        except IOError:
+            request.setResponseCode(404)
+            return '<html><body>Go away.</body></html>'
         request.setHeader('Content-Type', 'text/html;charset=utf-8')
         return html.encode('utf-8')
 

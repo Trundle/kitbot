@@ -60,7 +60,7 @@ class KITBotMaker(object):
 
         root = Resource()
         resource = HTTPAuthSessionWrapper(portal, [credential_factory])
-        root.putChild('', Redirect('/%s/default' % (str(room_jid.user, ))))
+        root.putChild('', Redirect('/%s/view/' % (str(room_jid.user, ))))
         root.putChild(room_jid.user, resource)
 
         httpd_log_view = internet.TCPServer(int(options['http-port']),
