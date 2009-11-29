@@ -7,7 +7,9 @@ from twisted.cred.portal import Portal
 from twisted.plugin import IPlugin
 from twisted.python import usage
 from twisted.web.guard import HTTPAuthSessionWrapper, DigestCredentialFactory
+from twisted.web.resource import Resource
 from twisted.web.server import Site
+from twisted.web.util import Redirect
 from twisted.words.protocols.jabber.jid import internJID
 from wokkel.client import XMPPClient
 from zope.interface import implements
@@ -55,8 +57,14 @@ class KITBotMaker(object):
                         options["credInterfaces"][IUsernamePassword])
         credential_factory = DigestCredentialFactory('md5', 'Hello Kitty!')
         resource = HTTPAuthSessionWrapper(portal, [credential_factory])
+
+        root = Resource()
+        resource = HTTPAuthSessionWrapper(portal, [credential_factory])
+        root.putChild('', Redirect('/%s/default' % (str(room_jid.user, ))))
+        root.putChild(room_jid.user, resource)
+
         httpd_log_view = internet.TCPServer(int(options['http-port']),
-                                            Site(resource))
+                                            Site(root))
         httpd_log_view.setServiceParent(bot)
 
         return bot
