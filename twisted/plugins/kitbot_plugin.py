@@ -41,10 +41,10 @@ class KITBotMaker(object):
 
     def makeService(self, options):
         bot = service.MultiService()
-                                          
+
         xmppclient = XMPPClient(internJID(options['jid']),
                                 options['password'])
-        xmppclient.logTraffic = ('verbose' in options)
+        xmppclient.logTraffic = options['verbose']
         xmppclient.setServiceParent(bot)
         room_jid = internJID(options['room'])
         mucbot = KITBot(room_jid, options['room-password'], options['logpath'])
