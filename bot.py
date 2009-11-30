@@ -50,6 +50,27 @@ class ChatLogger(object):
         self.write_line('<%s> %s' % (nick, message))
 
 
+class LogFormatter(HtmlFormatter):
+    def __init__(self, prev_url, next_url, *args, **kwargs):
+        HtmlFormatter.__init__(self, *args, **kwargs)
+        self.next_url = next_url
+        self.prev_url = prev_url
+
+    def wrap(self, source, outfile):
+        if self.prev_url:
+            yield (0, u'<a href="%s">Zurück</a>' % (self.prev_url, ))
+        if self.next_url:
+            yield (0, u'<a href="%s">Weiter</a>' % (self.next_url, ))
+
+        for line in HtmlFormatter.wrap(self, source, outfile):
+            yield line
+
+        if self.prev_url:
+            yield (0, u'<a href="%s">Zurück</a>' % (self.prev_url, ))
+        if self.next_url:
+            yield (0, u'<a href="%s">Weiter</a>' % (self.next_url, ))
+
+
 class LogViewRealm(object):
     implements(IRealm)
 
@@ -89,7 +110,13 @@ class LogViewPage(Resource):
             style = get_style_by_name(self.style_name)
         except ClassNotFound:
             style = get_style_by_name('default')
-        formatter = HtmlFormatter(full=True, style=style)
+            self.style_name = 'default'
+
+        prev_url = None
+        if self.days_back:
+            prev_url = self.url_for(request, self.days_back - 1)
+        next_url = self.url_for(request, (self.days_back or 0) + 1)
+        formatter = LogFormatter(prev_url, next_url, full=True, style=style)
 
         if self.days_back:
             log_date = date.today() - timedelta(self.days_back)
@@ -102,6 +129,17 @@ class LogViewPage(Resource):
             return '<html><body>Go away.</body></html>'
         request.setHeader('Content-Type', 'text/html;charset=utf-8')
         return html.encode('utf-8')
+
+    def url_for(self, request, days_back):
+        prepath = list(request.prepath)
+        if self.days_back is not None:
+            prepath.pop()
+        if self.style_name:
+            prepath.pop()
+        url = '/%s/%s/' % ('/'.join(prepath), days_back)
+        if self.style_name:
+            url += self.style_name
+        return url
 
 
 class IMMixin(object):
