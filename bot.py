@@ -120,7 +120,8 @@ class LogViewPage(Resource):
 
         if self.days_back:
             log_date = date.today() - timedelta(self.days_back)
-            self.logfilename += log_date.strftime('.%Y_%m_%d')
+            suffix = log_date.strftime('.%Y_%m_%d').replace('_0', '_')
+            self.logfilename += suffix
         try:
             with codecs.open(self.logfilename, 'r', 'utf-8') as logfile:
                 html = highlight(logfile.read(), IrcLogsLexer(), formatter)
