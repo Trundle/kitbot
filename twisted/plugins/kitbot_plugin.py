@@ -1,4 +1,5 @@
 import os.path
+from getpass import getpass
 
 from twisted.application import internet, service
 from twisted.cred.credentials import IUsernamePassword
@@ -19,14 +20,13 @@ from bot import KITBot, LogViewRealm
 
 class Options(usage.Options, AuthOptionMixin):
     optFlags = [
+        ('room-has-password', None, 'Whether the room has a password.'),
         ('verbose', 'v', 'Log XMPP traffic')
     ]
 
     optParameters = [
         ('jid', 'j', 'kitty@example.org', "The bot's Jabber ID"),
-        ('password', 'p', '', "Password of bot's jabber account."),
         ('room', 'r', 'kit@conference.example.org/Kitty', 'The room to join'),
-        ('room-password', None, '', "The room's password."),
         ('logpath', 'p', '.', 'Path where logs are written to'),
         ('http-port', None, 8080, 'Port of HTTPd for log views', int)
     ]
@@ -42,6 +42,12 @@ class KITBotMaker(object):
     options = Options
 
     def makeService(self, options):
+        # Get the passwords interactively, so they are not shown in the
+        # process list
+        options['password'] = getpass('Enter password: ')
+        if options['room-has-password']:
+            options['room-password'] = getpass('Enter room password: ')
+
         bot = service.MultiService()
 
         xmppclient = XMPPClient(internJID(options['jid']),
