@@ -8,9 +8,7 @@ from twisted.cred.portal import Portal
 from twisted.plugin import IPlugin
 from twisted.python import usage
 from twisted.web.guard import HTTPAuthSessionWrapper, DigestCredentialFactory
-from twisted.web.resource import Resource
-from twisted.web.server import Site
-from twisted.web.util import Redirect
+from twisted.web import resource, server, static, util
 from twisted.words.protocols.jabber.jid import internJID
 from wokkel.client import XMPPClient
 from zope.interface import implements
@@ -27,6 +25,7 @@ class Options(usage.Options, AuthOptionMixin):
     optParameters = [
         ('jid', 'j', 'kitty@example.org', "The bot's Jabber ID"),
         ('room', 'r', 'kit@conference.example.org/Kitty', 'The room to join'),
+        ('jsmath', None, './jsMath', 'Path to jsMath'),
         ('logpath', 'p', '.', 'Path where logs are written to'),
         ('http-port', None, 8080, 'Port of HTTPd for log views', int)
     ]
@@ -62,14 +61,15 @@ class KITBotMaker(object):
                                      room_jid.user + '.log')),
                         options["credInterfaces"][IUsernamePassword])
         credential_factory = DigestCredentialFactory('md5', 'Hello Kitty!')
-        resource = HTTPAuthSessionWrapper(portal, [credential_factory])
 
-        root = Resource()
-        resource = HTTPAuthSessionWrapper(portal, [credential_factory])
-        root.putChild('', Redirect('/%s/view/' % (str(room_jid.user, ))))
-        root.putChild(room_jid.user, resource)
+        root = resource.Resource()
+        auth_resource = HTTPAuthSessionWrapper(portal, [credential_factory])
+        root.putChild('', util.Redirect('/%s/view/' % (str(room_jid.user, ))))
+        root.putChild(room_jid.user, auth_resource)
+        root.putChild('jsMath', static.File(options['jsmath']))
 
-        httpd_log_view = internet.TCPServer(options['http-port'], Site(root))
+        httpd_log_view = internet.TCPServer(options['http-port'],
+                                            server.Site(root))
         httpd_log_view.setServiceParent(bot)
 
         return bot

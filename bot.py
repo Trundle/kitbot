@@ -29,6 +29,38 @@ from wokkel.xmppim import AvailablePresence
 from zope.interface import implements
 
 
+CSSFILE_TEMPLATE = '''\
+td.linenos { background-color: #f0f0f0; padding-right: 10px; }
+span.lineno { background-color: #f0f0f0; padding: 0 5px 0 5px; }
+pre { line-height: 125%%; }
+%(styledefs)s
+'''
+
+DOC_HEADER = '''\
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+
+<html>
+<head>
+  <title>%(title)s</title>
+  <meta http-equiv="content-type" content="text/html; charset=%(encoding)s">
+  <style type="text/css">
+''' + CSSFILE_TEMPLATE + '''
+  </style>
+  <script type="text/javascript" src="/jsMath/easy/load.js"></script>
+</head>
+<body>
+<h2>%(title)s</h2>
+
+'''
+
+
+DOC_FOOTER = '''\
+</body>
+</html>
+'''
+
+
 class ChatLogger(object):
     def __init__(self, logfile, path):
         self.log = DailyLogFile(logfile, path)
@@ -51,24 +83,14 @@ class ChatLogger(object):
 
 
 class LogFormatter(HtmlFormatter):
-    def __init__(self, prev_url, next_url, *args, **kwargs):
-        HtmlFormatter.__init__(self, *args, **kwargs)
-        self.next_url = next_url
-        self.prev_url = prev_url
-
-    def wrap(self, source, outfile):
-        if self.prev_url:
-            yield (0, u'<a href="%s">Zurück</a>' % (self.prev_url, ))
-        if self.next_url:
-            yield (0, u'<a href="%s">Weiter</a>' % (self.next_url, ))
-
-        for line in HtmlFormatter.wrap(self, source, outfile):
-            yield line
-
-        if self.prev_url:
-            yield (0, u'<a href="%s">Zurück</a>' % (self.prev_url, ))
-        if self.next_url:
-            yield (0, u'<a href="%s">Weiter</a>' % (self.next_url, ))
+    def _wrap_pre(self, inner):
+        # Oh noes, we overwrite an internal method, but Pygments has no
+        # official API to do that.
+        yield 0, ('<pre class="tex2math_process"'
+                  + (self.prestyles and ' style="%s"' % self.prestyles) + '>')
+        for tup in inner:
+            yield tup
+        yield 0, '</pre>'
 
 
 class LogViewRealm(object):
@@ -116,7 +138,7 @@ class LogViewPage(Resource):
         if self.days_back:
             prev_url = self.url_for(request, self.days_back - 1)
         next_url = self.url_for(request, (self.days_back or 0) + 1)
-        formatter = LogFormatter(prev_url, next_url, full=True, style=style)
+        formatter = LogFormatter(style=style)
 
         if self.days_back:
             log_date = date.today() - timedelta(self.days_back)
@@ -124,12 +146,31 @@ class LogViewPage(Resource):
             self.logfilename += suffix
         try:
             with codecs.open(self.logfilename, 'r', 'utf-8') as logfile:
-                html = highlight(logfile.read(), IrcLogsLexer(), formatter)
+                html = self.render_log(logfile.read(), formatter,
+                                       prev_url, next_url)
         except IOError:
             request.setResponseCode(404)
             return '<html><body>Go away.</body></html>'
         request.setHeader('Content-Type', 'text/html;charset=utf-8')
         return html.encode('utf-8')
+
+    def render_log(self, source, formatter, prev_url, next_url):
+        html = [
+            DOC_HEADER % dict(title='',
+                              styledefs=formatter.get_style_defs('body'),
+                              encoding='utf-8'),
+        ]
+        if prev_url:
+            html.append(u'<a href="%s">Zurück</a>' % (prev_url, ))
+        if next_url:
+            html.append(u'<a href="%s">Weiter</a>' % (next_url, ))
+        html.append(highlight(source, IrcLogsLexer(), formatter))
+        if prev_url:
+            html.append(u'<a href="%s">Zurück</a>' % (prev_url, ))
+        if next_url:
+            html.append(u'<a href="%s">Weiter</a>' % (next_url, ))
+        html.append(DOC_FOOTER)
+        return ''.join(html)
 
     def url_for(self, request, days_back):
         prepath = list(request.prepath)
