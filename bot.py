@@ -7,7 +7,7 @@
 
     A simple logging bot.
 
-    Copyright (C) 2009 Andreas Stührk
+    Copyright (C) 2009-2010 Andreas Stührk
 """
 
 from __future__ import with_statement
@@ -214,6 +214,8 @@ class KITBot(muc.MUCClient, IMMixin):
             self.logger.action(user.nick, body[len('/me '):])
         else:
             self.logger.message(user.nick, body)
+        if body.strip() == 'ping':
+            self.groupChat(self.room_jid, 'pong')
 
     def receivedSubject(self, room, body):
         self.logger.write_line('-!- Topic for %s: %s' % (room.user, body))
