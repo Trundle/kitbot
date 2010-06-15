@@ -222,12 +222,13 @@ class KITBot(muc.MUCClient, IMMixin):
         else:
             self.logger.message(user.nick, body)
         body_lower = body.strip().lower()
+        nick_lower = self.room_jid.resource.lower()
         if body_lower == 'ping':
             self.groupChat(self.room_jid, 'pong')
         elif body_lower == "%s: mensa" % (self.room_jid.resource, ):
             getPage(MENSA_URL).addCallback(parse_mensa, self, user, False)
-        elif body_lower in ["%s: mensa heute" % (self.room_jid.resource, ),
-                            "%s: mensa morgen" % (self.room_jid.resource, )]:
+        elif body_lower in ["%s: mensa heute" % (nick_lower, ),
+                            "%s: mensa morgen" % (nick_lower, )]:
             today = datetime.today()
             if "morgen" in body:
                 today += timedelta(days=1)
