@@ -15,6 +15,8 @@ import codecs
 import os
 from datetime import date, datetime, timedelta
 
+from lxml import html
+from lxml.cssselect import CSSSelector
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers.text import IrcLogsLexer
@@ -22,6 +24,7 @@ from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 from twisted.cred.portal import IRealm
 from twisted.python.logfile import DailyLogFile
+from twisted.web.client import getPage
 from twisted.web.error import NoResource
 from twisted.web.resource import IResource, Resource
 from wokkel import muc
@@ -60,6 +63,10 @@ DOC_FOOTER = '''\
 </html>
 '''
 
+DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
+DAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr"]
+MENSA_URL = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=1&varsity=1&pricemode=0&page=search"
+MENSA_URL_TODAY = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=0&startdate=%s+%s&enddate=&varsity=1&pricemode=0&page=search"
 
 class ChatLogger(object):
     def __init__(self, logfile, path):
@@ -216,6 +223,18 @@ class KITBot(muc.MUCClient, IMMixin):
             self.logger.message(user.nick, body)
         if body.strip() == 'ping':
             self.groupChat(self.room_jid, 'pong')
+        elif body.strip() == "%s: mensa" % (self.room_jid.resource, ):
+            getPage(MENSA_URL).addCallback(parse_mensa, self, user, False)
+        elif body.strip() in ["%s: mensa heute" % (self.room_jid.resource, ),
+                              "%s: mensa morgen" % (self.room_jid.resource, )]:
+            today = datetime.today()
+            if "morgen" in body:
+                today += timedelta(days=1)
+            if today.weekday() > 4:
+                today += timedelta(days=(7 - today.weekday()))
+            d = getPage(MENSA_URL_TODAY % (DAYS_SHORT[today.weekday()],
+                                           today.strftime("%d.%m.%Y")))
+            d.addCallback(parse_mensa, self, user, True)
 
     def receivedSubject(self, room, body):
         self.logger.write_line('-!- Topic for %s: %s' % (room.user, body))
@@ -227,3 +246,26 @@ class KITBot(muc.MUCClient, IMMixin):
     def userLeftRoom(self, room, user):
         self.logger.write_line('-!- %s has left %s' % (user.nick,
                                                        room.roomIdentifier))
+
+def parse_mensa(string, bot, user, only_today=True):
+    tree = html.fromstring(string)
+    headers = [e for e in CSSSelector('div.tablelink')(tree) if e.text]
+    lines = list()
+    for header in headers:
+        line_id = header.get("id").split("_")[-1]
+        if not header.text.startswith(u"L") and header.text != u"Update":
+            # Only show the interesting ones
+            continue
+        lines.append(header.text)
+        if only_today:
+            selector = CSSSelector("div#linecol_%s_0" % (line_id, ))
+            meal = selector(tree)[0]
+            lines[-1] += ": " + meal.text_content().strip()
+        else:
+            for (i, day) in enumerate(DAYS):
+                selector = CSSSelector("div#linecol_%s_%i" % (line_id, i))
+                meal = selector(tree)[0]
+                lines.append("%s: %s" % (day, meal.text_content().strip()))
+            lines.append('\n')
+    to = '%s/%s' % (bot.room_jid.userhost(), user.nick)
+    bot.chat(to, '\n'.join(lines))
