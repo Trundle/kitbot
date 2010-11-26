@@ -13,6 +13,7 @@
 from __future__ import with_statement
 import codecs
 import os
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from lxml import html
@@ -207,6 +208,7 @@ class KITBot(muc.MUCClient, IMMixin):
         self.room_jid = room_jid
         self.room_password = password
         self.logger = ChatLogger(self.room_jid.user + '.log', logpath)
+        self.postponed_messages = defaultdict(list)
 
     def initialized(self):
         IMMixin.initialized(self)
@@ -237,6 +239,13 @@ class KITBot(muc.MUCClient, IMMixin):
             d = getPage(MENSA_URL_TODAY % (DAYS_SHORT[today.weekday()],
                                            today.strftime("%d.%m.%Y")))
             d.addCallback(parse_mensa, self, user, True)
+        elif body_lower.startswith(nick_lower + ": message "):
+            try:
+                (_, _, receiver, message) = body.split(None, 3)
+            except ValueError:
+                pass
+            else:
+                self.postponed_messages[receiver].append((user.nick, message))
 
     def receivedSubject(self, room, body):
         self.logger.write_line('-!- Topic for %s: %s' % (room.user, body))
@@ -244,6 +253,11 @@ class KITBot(muc.MUCClient, IMMixin):
     def userJoinedRoom(self, room, user):
         self.logger.write_line('-!- %s has joined %s' % (user.nick,
                                                          room.roomIdentifier))
+        if user.nick in self.postponed_messages:
+            for (from_, message) in self.postponed_messages.pop(user.nick):
+                self.groupChat(self.room_jid,
+                               '%s: %s (This message from %s has been postponed.)' %
+                               (user.nick, message, from_))
 
     def userLeftRoom(self, room, user):
         self.logger.write_line('-!- %s has left %s' % (user.nick,
