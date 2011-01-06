@@ -253,11 +253,14 @@ class KITBot(muc.MUCClient, IMMixin):
     def userJoinedRoom(self, room, user):
         self.logger.write_line('-!- %s has joined %s' % (user.nick,
                                                          room.roomIdentifier))
-        if user.nick in self.postponed_messages:
-            for (from_, message) in self.postponed_messages.pop(user.nick):
-                self.groupChat(self.room_jid,
-                               '%s: %s (This message from %s has been postponed.)' %
-                               (user.nick, message, from_))
+        for recp in self.postponed_messages.keys():
+            if user.nick.startswith(recp):
+                for (from_, message) in self.postponed_messages.pop(recp):
+                    self.groupChat(
+                        self.room_jid,
+                        '%s: %s (This message from %s has been postponed.)' %
+                                                    (user.nick, message, from_)
+                    )
 
     def userLeftRoom(self, room, user):
         self.logger.write_line('-!- %s has left %s' % (user.nick,
