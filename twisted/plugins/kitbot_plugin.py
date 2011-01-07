@@ -1,14 +1,16 @@
+try:
+    import json
+except ImportError:
+    import simplejson as json
 import os.path
-from getpass import getpass
 
 from twisted.application import internet, service
-from twisted.cred.credentials import IUsernamePassword
-from twisted.cred.strcred import AuthOptionMixin
+from twisted.cred import strcred
 from twisted.cred.portal import Portal
 from twisted.plugin import IPlugin
 from twisted.python import usage
 from twisted.web.guard import HTTPAuthSessionWrapper, DigestCredentialFactory
-from twisted.web import resource, server, static, util
+from twisted.web import resource, server, static
 from twisted.words.protocols.jabber.jid import internJID
 from wokkel.client import XMPPClient
 from zope.interface import implements
@@ -16,21 +18,19 @@ from zope.interface import implements
 from bot import KITBot, LogViewRealm
 
 
-class Options(usage.Options, AuthOptionMixin):
+class Options(usage.Options):
     optFlags = [
-        ('room-has-password', None, 'Whether the room has a password.'),
         ('verbose', 'v', 'Log XMPP traffic')
     ]
 
-    optParameters = [
-        ('jid', 'j', 'kitty@example.org', "The bot's Jabber ID"),
-        ('room', 'r', 'kit@conference.example.org/Kitty', 'The room to join'),
-        ('jsmath', None, './jsMath', 'Path to jsMath'),
-        ('logpath', 'p', '.', 'Path where logs are written to'),
-        ('http-port', None, 8080, 'Port of HTTPd for log views', int)
-    ]
+    def getSynopsis(self):
+        return 'Usage: twistd [options] kitbot <config file>'
 
-    supportedInterfaces = (IUsernamePassword, )
+    def parseArgs(self, *args):
+        if len(args) == 1:
+            self.config = args[0]
+        else:
+            self.opt_help()
 
 
 class KITBotMaker(object):
@@ -41,34 +41,35 @@ class KITBotMaker(object):
     options = Options
 
     def makeService(self, options):
-        # Get the passwords interactively, so they are not shown in the
-        # process list
-        options['password'] = getpass('Enter password: ')
-        if options['room-has-password']:
-            options['room-password'] = getpass('Enter room password: ')
-
-        bot = service.MultiService()
-
-        xmppclient = XMPPClient(internJID(options['jid']),
-                                options['password'])
-        xmppclient.logTraffic = options['verbose']
-        xmppclient.setServiceParent(bot)
-        room_jid = internJID(options['room'])
-        mucbot = KITBot(room_jid, options['room-password'], options['logpath'])
-        mucbot.setHandlerParent(xmppclient)
-
-        portal = Portal(LogViewRealm(os.path.join(options['logpath'],
-                                     room_jid.user + '.log')),
-                        options["credInterfaces"][IUsernamePassword])
-        credential_factory = DigestCredentialFactory('md5', 'Hello Kitty!')
+        with open(options.config, "r") as config_file:
+            config = json.load(config_file)
 
         root = resource.Resource()
-        auth_resource = HTTPAuthSessionWrapper(portal, [credential_factory])
-        root.putChild('', util.Redirect('/%s/view/' % (str(room_jid.user, ))))
-        root.putChild(room_jid.user, auth_resource)
-        root.putChild('jsMath', static.File(options['jsmath']))
+        root.putChild('jsMath', static.File(config["global"]["jsmath"]))
 
-        httpd_log_view = internet.TCPServer(options['http-port'],
+        bot = service.MultiService()
+        xmppclient = XMPPClient(internJID(config["global"]["jid"]),
+                                config["global"]["password"])
+        xmppclient.logTraffic = options['verbose']
+        xmppclient.setServiceParent(bot)
+
+        for muc_config in config["mucs"]:
+            room_jid = internJID(muc_config["jid"])
+            mucbot = KITBot(room_jid, muc_config.get("password", None),
+                            config["global"]["logpath"])
+            mucbot.setHandlerParent(xmppclient)
+
+            # Log resource
+            portal = Portal(
+                LogViewRealm(os.path.join(config["global"]['logpath'],
+                                          room_jid.user + '.log')),
+                [strcred.makeChecker(muc_config["log-auth"])]
+            )
+            credential_factory = DigestCredentialFactory('md5', 'Hello Kitty!')
+            auth_resource = HTTPAuthSessionWrapper(portal, [credential_factory])
+            root.putChild(room_jid.user, auth_resource)
+
+        httpd_log_view = internet.TCPServer(config["global"]["http-port"],
                                             server.Site(root))
         httpd_log_view.setServiceParent(bot)
 
