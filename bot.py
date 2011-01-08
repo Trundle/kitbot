@@ -7,13 +7,13 @@
 
     A simple logging bot.
 
-    Copyright (C) 2009-2010 Andreas Stührk
+    Copyright (C) 2009-2011 Andreas Stührk
 """
 
 from __future__ import with_statement
 import codecs
+import functools
 import os
-from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from lxml import html
@@ -24,6 +24,8 @@ from pygments.lexers.text import IrcLogsLexer
 from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 from twisted.cred.portal import IRealm
+from twisted.enterprise import adbapi
+from twisted.internet import defer
 from twisted.python.logfile import DailyLogFile
 from twisted.web.client import getPage
 from twisted.web.error import NoResource
@@ -68,6 +70,56 @@ DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
 DAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr"]
 MENSA_URL = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=1&varsity=1&pricemode=0&page=search"
 MENSA_URL_TODAY = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=0&startdate=%s+%s&enddate=&varsity=1&pricemode=0&page=search"
+
+def interaction(func):
+    """Convenient decorator for `t.e.a.ConnectionPool`"""
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        return self.dbpool.runInteraction(
+            functools.partial(func, self),
+            *args, **kwargs
+        )
+    return wrapper
+
+class DatabaseRunner(object):
+    def __init__(self, database):
+        self.dbpool = adbapi.ConnectionPool(
+            "sqlite3", database,
+            check_same_thread=False
+        )
+
+    @interaction
+    def add_message(self, transaction, room_jid, from_, to, message):
+        transaction.execute("""
+            INSERT INTO postponed_messages
+                        (from_, to_, room, message)
+            VALUES      (?, ?, ?, ?)
+        """, (from_, to, room_jid.userhost(), message))
+        return bool(transaction.rowcount)
+
+    @interaction
+    def get_messages(self, transaction, room_jid, name):
+        transaction.execute("""
+            SELECT id, from_, to_, message
+            FROM   postponed_messages
+            WHERE  room = ?
+         """, (room_jid.userhost(), ))
+        messages = list()
+        to_delete = list()
+        for (id_, from_, to_, message) in transaction:
+            if name.startswith(to_):
+                to_delete.append(id_)
+                messages.append((from_, message))
+        if to_delete:
+            transaction.execute("""
+                DELETE FROM postponed_messages
+                WHERE       room = ?
+                            AND id IN (%s)""" %
+                                ",".join(('?', ) * len(to_delete)),
+                [room_jid.userhost()] + to_delete
+             )
+        return messages
+        
 
 class ChatLogger(object):
     def __init__(self, logfile, path):
@@ -208,7 +260,6 @@ class KITBot(muc.MUCClient, IMMixin):
         self.room_jid = room_jid
         self.room_password = password
         self.logger = ChatLogger(self.room_jid.user + '.log', logpath)
-        self.postponed_messages = defaultdict(list)
 
     def initialized(self):
         IMMixin.initialized(self)
@@ -245,22 +296,24 @@ class KITBot(muc.MUCClient, IMMixin):
             except ValueError:
                 pass
             else:
-                self.postponed_messages[receiver].append((user.nick, message))
+                self.parent.dbpool.add_message(self.room_jid,
+                                               user.nick, receiver, message)
 
     def receivedSubject(self, room, body):
         self.logger.write_line('-!- Topic for %s: %s' % (room.user, body))
 
+    @defer.inlineCallbacks
     def userJoinedRoom(self, room, user):
         self.logger.write_line('-!- %s has joined %s' % (user.nick,
                                                          room.roomIdentifier))
-        for recp in self.postponed_messages.keys():
-            if user.nick.startswith(recp):
-                for (from_, message) in self.postponed_messages.pop(recp):
-                    self.groupChat(
-                        self.room_jid,
-                        '%s: %s (This message from %s has been postponed.)' %
+        messages = yield self.parent.dbpool.get_messages(self.room_jid,
+                                                         user.nick)
+        for (from_, message) in messages:
+            self.groupChat(
+                self.room_jid,
+                '%s: %s (This message from %s has been postponed.)' %
                                                     (user.nick, message, from_)
-                    )
+            )
 
     def userLeftRoom(self, room, user):
         self.logger.write_line('-!- %s has left %s' % (user.nick,

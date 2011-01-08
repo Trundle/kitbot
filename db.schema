@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS postponed_messages (
+    id INTEGER PRIMARY KEY,
+    from_ TEXT NOT NULL,
+    to_ TEXT NOT NULL,
+    room TEXT NOT NULL,
+    message TEXT NOT NULL
+);

@@ -15,7 +15,7 @@ from twisted.words.protocols.jabber.jid import internJID
 from wokkel.client import XMPPClient
 from zope.interface import implements
 
-from bot import KITBot, LogViewRealm
+from bot import DatabaseRunner, KITBot, LogViewRealm
 
 
 class Options(usage.Options):
@@ -52,6 +52,7 @@ class KITBotMaker(object):
                                 config["global"]["password"])
         xmppclient.logTraffic = options['verbose']
         xmppclient.setServiceParent(bot)
+        xmppclient.dbpool = DatabaseRunner(config["global"]["database"])
 
         for muc_config in config["mucs"]:
             room_jid = internJID(muc_config["jid"])
