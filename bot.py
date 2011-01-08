@@ -27,6 +27,7 @@ from twisted.cred.portal import IRealm
 from twisted.enterprise import adbapi
 from twisted.internet import defer
 from twisted.python.logfile import DailyLogFile
+from twisted.web import xmlrpc
 from twisted.web.client import getPage
 from twisted.web.error import NoResource
 from twisted.web.resource import IResource, Resource
@@ -242,6 +243,19 @@ class LogViewPage(Resource):
         if self.style_name:
             url += self.style_name
         return url
+
+class XMLRPCInterface(xmlrpc.XMLRPC):
+    def __init__(self, bot, *args, **kwargs):
+        xmlrpc.XMLRPC.__init__(self, *args, **kwargs)
+        self.bot = bot
+
+    def xmlrpc_say(self, channel_id, message):
+        try:
+            room = self.bot.rooms[channel_id]
+        except KeyError:
+            return False
+        room.groupChat(room.room_jid, message)
+        return True
 
 
 class IMMixin(object):

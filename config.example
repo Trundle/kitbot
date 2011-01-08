@@ -5,12 +5,14 @@
         "jsmath": "/path/to/jsMath",
         "logpath": "/path/to/logs",
         "http-port": 8080,
+        "xml-rpc-port": 9090,
         "database": "sqlite.db"
     },
     "mucs": [
         {
             "jid": "kit@conference.example.org/Kitty",
-            "log-auth": "file:./passwd"
+            "log-auth": "file:./passwd",
+            "xml-rpc-id": "unique secret identifier"
         },
         {
             "jid": "protected@conference.example.org/Kitty",

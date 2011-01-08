@@ -15,7 +15,7 @@ from twisted.words.protocols.jabber.jid import internJID
 from wokkel.client import XMPPClient
 from zope.interface import implements
 
-from bot import DatabaseRunner, KITBot, LogViewRealm
+from bot import DatabaseRunner, KITBot, LogViewRealm, XMLRPCInterface
 
 
 class Options(usage.Options):
@@ -53,12 +53,23 @@ class KITBotMaker(object):
         xmppclient.logTraffic = options['verbose']
         xmppclient.setServiceParent(bot)
         xmppclient.dbpool = DatabaseRunner(config["global"]["database"])
+        xmppclient.rooms = dict()
+
+        xmlrpc_port = config["global"].get("xml-rpc-port", None)
+        if xmlrpc_port is not None:
+            xmlrpcinterface = XMLRPCInterface(xmppclient)
+            rpc = internet.TCPServer(xmlrpc_port, server.Site(xmlrpcinterface))
+            rpc.setName('XML-RPC')
+            rpc.setServiceParent(bot)
 
         for muc_config in config["mucs"]:
             room_jid = internJID(muc_config["jid"])
             mucbot = KITBot(room_jid, muc_config.get("password", None),
                             config["global"]["logpath"])
             mucbot.setHandlerParent(xmppclient)
+
+            if "xml-rpc-id" in muc_config:
+                xmppclient.rooms[muc_config["xml-rpc-id"]] = mucbot
 
             # Log resource
             portal = Portal(
