@@ -1,0 +1,21 @@
+{
+    "global": {
+        "jid": "kitty@example.org",
+        "password": "secret",
+        "jsmath": "/path/to/jsMath",
+        "logpath": "/path/to/logs",
+        "http-port": 8080,
+        "database": "sqlite.db"
+    },
+    "mucs": [
+        {
+            "jid": "kit@conference.example.org/Kitty",
+            "log-auth": "file:./passwd"
+        },
+        {
+            "jid": "protected@conference.example.org/Kitty",
+            "password": "password",
+            "log-auth": "file:./passwd.other"
+        }
+    ]
+}
