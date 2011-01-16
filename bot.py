@@ -12,12 +12,12 @@
 
 from __future__ import with_statement
 import codecs
+import collections
 import functools
 import os
 from datetime import date, datetime, timedelta
 
-from lxml import html
-from lxml.cssselect import CSSSelector
+from lxml import cssselect, html
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers.text import IrcLogsLexer
@@ -67,10 +67,7 @@ DOC_FOOTER = '''\
 </html>
 '''
 
-DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
-DAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr"]
-MENSA_URL = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=1&varsity=1&pricemode=0&page=search"
-MENSA_URL_TODAY = "http://www.studentenwerk-karlsruhe.de/speiseplaene.php?datemode=0&startdate=%s+%s&enddate=&varsity=1&pricemode=0&page=search"
+MENSA_URL = "http://www.studentenwerk-karlsruhe.de/en/essen/"
 
 def interaction(func):
     """Convenient decorator for `t.e.a.ConnectionPool`"""
@@ -292,18 +289,17 @@ class KITBot(muc.MUCClient, IMMixin):
         nick_lower = self.room_jid.resource.lower()
         if body_lower == 'ping':
             self.groupChat(self.room_jid, 'pong')
-        elif body_lower == "%s: mensa" % (self.room_jid.resource, ):
-            getPage(MENSA_URL).addCallback(parse_mensa, self, user, False)
-        elif body_lower in ["%s: mensa heute" % (nick_lower, ),
-                            "%s: mensa morgen" % (nick_lower, )]:
-            today = datetime.today()
-            if "morgen" in body:
-                today += timedelta(days=1)
-            if today.weekday() > 4:
-                today += timedelta(days=(7 - today.weekday()))
-            d = getPage(MENSA_URL_TODAY % (DAYS_SHORT[today.weekday()],
-                                           today.strftime("%d.%m.%Y")))
-            d.addCallback(parse_mensa, self, user, True)
+        elif body_lower in ["%s: mensa" % (nick_lower, ),
+                            "%s: mensa heute" % (nick_lower, ),
+                            "%s: mensa morgen" % (nick_lower, ),
+                            "%s: mensa njam" % (nick_lower, )]:
+            days = [1]
+            if u"morgen" in body:
+                days = [2]
+            elif u"njam" in body:
+                days = range(1, 6)
+            d = getPage(MENSA_URL)
+            d.addCallback(process_mensa, self, user, days)
         elif body_lower.startswith(nick_lower + ": message "):
             try:
                 (_, _, receiver, message) = body.split(None, 3)
@@ -333,25 +329,40 @@ class KITBot(muc.MUCClient, IMMixin):
         self.logger.write_line('-!- %s has left %s' % (user.nick,
                                                        room.roomIdentifier))
 
-def parse_mensa(string, bot, user, only_today=True):
+def scrape_mensa(document, day=1):
+    if day not in xrange(1, 6):
+        raise ValueError("day must be between 1 and 5, got " + str(day))
+    selector = cssselect.CSSSelector(
+        "div#canteen_place_1 div#fragment-c1-%i" % (day, )
+    )
+    meal_selector = cssselect.CSSSelector("span.bg")
+    div = selector(document)[0]
+    for element in div.findall("./table/tr/td"):
+        if element.get("class") == "mensatype":
+            current_line = element.text_content()
+        elif element.get("class") == "mensadata":
+            for meal in meal_selector(element):
+                meal = meal.text_content()
+                if meal.endswith(u" ab"):
+                    meal = meal[:-3]
+                yield (current_line, meal)
+
+def process_mensa(string, bot, user, days):
     tree = html.fromstring(string)
-    headers = [e for e in CSSSelector('div.tablelink')(tree) if e.text]
     lines = list()
-    for header in headers:
-        line_id = header.get("id").split("_")[-1]
-        if not header.text.startswith(u"L") and header.text != u"Update":
-            # Only show the interesting ones
-            continue
-        lines.append(header.text)
-        if only_today:
-            selector = CSSSelector("div#linecol_%s_0" % (line_id, ))
-            meal = selector(tree)[0]
-            lines[-1] += ": " + meal.text_content().strip()
-        else:
-            for (i, day) in enumerate(DAYS):
-                selector = CSSSelector("div#linecol_%s_%i" % (line_id, i))
-                meal = selector(tree)[0]
-                lines.append("%s: %s" % (day, meal.text_content().strip()))
-            lines.append('\n')
+    for (i, day) in enumerate(days):
+        if len(days) > 1:
+            lines.append("In +%i Tagen:" % (day - 1, ))
+        meals = collections.defaultdict(list)
+        for (line, meal) in scrape_mensa(tree, day):
+            meals[line].append(meal)
+
+        for (line, meals) in sorted(meals.items()):
+            if line in [u"Abend",u"Curry Queen", u"L6 Update", u"Schnitzelbar"]:
+                continue
+            lines.append("%s: %s" % (line, u", ".join(meals)))
+        if i != (len(days) - 1):
+            lines.append("")
+
     to = '%s/%s' % (bot.room_jid.userhost(), user.nick)
     bot.chat(to, '\n'.join(lines))
