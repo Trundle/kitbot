@@ -6,6 +6,8 @@ except ImportError:
 import os.path
 
 from twisted.application import internet, service
+from twisted.conch import checkers, manhole, manhole_ssh
+from twisted.conch.insults import insults
 from twisted.cred import strcred
 from twisted.cred.portal import Portal
 from twisted.plugin import IPlugin
@@ -85,6 +87,18 @@ class KITBotMaker(object):
         httpd_log_view = internet.TCPServer(config["global"]["http-port"],
                                             server.Site(root))
         httpd_log_view.setServiceParent(bot)
+
+        # REPL over SSH
+        def makeREPLProtocol():
+            namespace = dict(bot=xmppclient)
+            return insults.ServerProtocol(manhole.ColoredManhole, namespace)
+        repl_realm = manhole_ssh.TerminalRealm()
+        repl_realm.chainedProtocolFactory = makeREPLProtocol
+        repl_checker = checkers.SSHPublicKeyDatabase()
+        repl_portal = Portal(repl_realm, [repl_checker])
+        repl_factory = manhole_ssh.ConchFactory(repl_portal)
+        repl = internet.TCPServer(config["global"]["ssh-port"], repl_factory)
+        repl.setServiceParent(bot)
 
         return bot
 

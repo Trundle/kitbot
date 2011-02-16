@@ -6,7 +6,8 @@
         "logpath": "/path/to/logs",
         "http-port": 8080,
         "xml-rpc-port": 9090,
-        "database": "sqlite.db"
+        "database": "sqlite.db",
+        "ssh-port": 10100
     },
     "mucs": [
         {
