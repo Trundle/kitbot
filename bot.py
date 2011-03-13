@@ -234,7 +234,7 @@ class LogViewPage(Resource):
         prepath = list(request.prepath)
         if self.days_back is not None:
             prepath.pop()
-        if self.style_name:
+        if self.style_name and self.isLeaf:
             prepath.pop()
         url = '/%s/%s/' % ('/'.join(prepath), days_back)
         if self.style_name:
