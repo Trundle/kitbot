@@ -306,6 +306,9 @@ class KITBot(muc.MUCClient, IMMixin):
             except ValueError:
                 pass
             else:
+                if receiver.endswith(u":"):
+                    # Most likely a syntax error and not part of the nick
+                    receiver = receiver[:-1]
                 self.parent.dbpool.add_message(self.room_jid,
                                                user.nick, receiver, message)
 
