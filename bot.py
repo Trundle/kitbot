@@ -102,10 +102,11 @@ class DatabaseRunner(object):
             FROM   postponed_messages
             WHERE  room = ?
          """, (room_jid.userhost(), ))
+        name = name.lower()
         messages = list()
         to_delete = list()
         for (id_, from_, to_, message) in transaction:
-            if name.startswith(to_):
+            if name.startswith(to_.lower()):
                 to_delete.append(id_)
                 messages.append((from_, message))
         if to_delete:
