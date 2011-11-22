@@ -358,7 +358,7 @@ def process_mensa(string, bot, user, days):
             meals[line].append(meal)
 
         for (line, meals) in sorted(meals.items()):
-            if line in [u"Abend",u"Curry Queen", u"L6 Update", u"Schnitzelbar"]:
+            if line in [u"Abend",u"Curry Queen", u"L6 Update", u"Schnitzelbar", u"Cafeteria Heiße Theke"]:
                 continue
             lines.append("%s: %s" % (line, u", ".join(meals)))
         if i != (len(days) - 1):
