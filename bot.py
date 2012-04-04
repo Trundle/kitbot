@@ -7,7 +7,7 @@
 
     A simple logging bot.
 
-    Copyright (C) 2009-2011 Andreas Stührk
+    Copyright (C) 2009-2012 Andreas Stührk
 """
 
 from __future__ import with_statement
@@ -118,7 +118,7 @@ class DatabaseRunner(object):
                 [room_jid.userhost()] + to_delete
              )
         return messages
-        
+
 
 class ChatLogger(object):
     def __init__(self, logfile, path):
@@ -257,7 +257,7 @@ class XMLRPCInterface(xmlrpc.XMLRPC):
 
 
 class IMMixin(object):
-    def initialized(self):
+    def connectionInitialized(self):
         self.xmlstream.addObserver('/message[@type="chat"]/body',
                                    self.receivedChat)
         self.send(AvailablePresence())
@@ -270,24 +270,29 @@ class KITBot(muc.MUCClient, IMMixin):
     def __init__(self, room_jid, password='', logpath=os.curdir):
         muc.MUCClient.__init__(self)
         self.room_jid = room_jid
+        self.nick = room_jid.resource
+        # Set resource to None, otherwise
+        # self.groupChat(self.room_jid, …) won't work as expected
+        room_jid.resource = None
         self.room_password = password
         self.logger = ChatLogger(self.room_jid.user + '.log', logpath)
 
-    def initialized(self):
-        IMMixin.initialized(self)
+    def connectionInitialized(self):
+        muc.MUCClient.connectionInitialized(self)
+        IMMixin.connectionInitialized(self)
 
         if self.room_password:
            self.password(self.room_jid, self.room_password)
-        self.join(self.room_jid.host, self.room_jid.user,
-                  self.room_jid.resource)
+        self.join(self.room_jid, self.nick)
 
-    def receivedGroupChat(self, room, user, body):
+    def receivedGroupChat(self, room, user, message):
+        body = message.body
         if body.startswith('/me '):
             self.logger.action(user.nick, body[len('/me '):])
         else:
             self.logger.message(user.nick, body)
         body_lower = body.strip().lower()
-        nick_lower = self.room_jid.resource.lower()
+        nick_lower = self.nick.lower()
         if body_lower == 'ping':
             self.groupChat(self.room_jid, 'pong')
         elif body_lower in ["%s: mensa" % (nick_lower, ),
@@ -318,8 +323,8 @@ class KITBot(muc.MUCClient, IMMixin):
 
     @defer.inlineCallbacks
     def userJoinedRoom(self, room, user):
-        self.logger.write_line('-!- %s has joined %s' % (user.nick,
-                                                         room.roomIdentifier))
+        room_name = room.roomJID.userhost()
+        self.logger.write_line('-!- %s has joined %s' % (user.nick, room_name))
         messages = yield self.parent.dbpool.get_messages(self.room_jid,
                                                          user.nick)
         for (from_, message) in messages:
@@ -330,8 +335,8 @@ class KITBot(muc.MUCClient, IMMixin):
             )
 
     def userLeftRoom(self, room, user):
-        self.logger.write_line('-!- %s has left %s' % (user.nick,
-                                                       room.roomIdentifier))
+        room_name = room.roomJID.userhost()
+        self.logger.write_line('-!- %s has left %s' % (user.nick, room_name))
 
 def scrape_mensa(document, day=1):
     if day not in xrange(1, 6):

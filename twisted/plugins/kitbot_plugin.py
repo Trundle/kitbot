@@ -14,7 +14,7 @@ from twisted.plugin import IPlugin
 from twisted.python import usage
 from twisted.web.guard import HTTPAuthSessionWrapper, DigestCredentialFactory
 from twisted.web import resource, server, static
-from twisted.words.protocols.jabber.jid import internJID
+from twisted.words.protocols.jabber.jid import JID
 from wokkel.client import XMPPClient
 from zope.interface import implements
 
@@ -51,7 +51,7 @@ class KITBotMaker(object):
         root.putChild('jsMath', static.File(config["global"]["jsmath"]))
 
         bot = service.MultiService()
-        xmppclient = XMPPClient(internJID(config["global"]["jid"]),
+        xmppclient = XMPPClient(JID(config["global"]["jid"]),
                                 config["global"]["password"])
         xmppclient.logTraffic = options['verbose']
         xmppclient.setServiceParent(bot)
@@ -66,7 +66,7 @@ class KITBotMaker(object):
             rpc.setServiceParent(bot)
 
         for muc_config in config["mucs"]:
-            room_jid = internJID(muc_config["jid"])
+            room_jid = JID(muc_config["jid"])
             mucbot = KITBot(room_jid, muc_config.get("password", None),
                             config["global"]["logpath"])
             mucbot.setHandlerParent(xmppclient)
