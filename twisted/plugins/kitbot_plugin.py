@@ -18,7 +18,7 @@ from twisted.words.protocols.jabber.jid import JID
 from wokkel.client import XMPPClient
 from zope.interface import implements
 
-from bot import DatabaseRunner, KITBot, LogViewRealm, XMLRPCInterface
+from bot import KITBot, LogViewRealm, XMLRPCInterface, load_plugins
 
 
 class Options(usage.Options):
@@ -55,7 +55,6 @@ class KITBotMaker(object):
                                 config["global"]["password"])
         xmppclient.logTraffic = options['verbose']
         xmppclient.setServiceParent(bot)
-        xmppclient.dbpool = DatabaseRunner(config["global"]["database"])
         xmppclient.rooms = dict()
 
         xmlrpc_port = config["global"].get("xml-rpc-port", None)
@@ -99,6 +98,8 @@ class KITBotMaker(object):
         repl_factory = manhole_ssh.ConchFactory(repl_portal)
         repl = internet.TCPServer(config["global"]["ssh-port"], repl_factory)
         repl.setServiceParent(bot)
+
+        load_plugins(config)
 
         return bot
 

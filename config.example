@@ -20,5 +20,8 @@
             "password": "password",
             "log-auth": "file:./passwd.other"
         }
-    ]
+    ],
+    "postponed_messages": {
+        "database": "sqlite.db"
+    }
 }

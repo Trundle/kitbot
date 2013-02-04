@@ -7,28 +7,26 @@
 
     A simple logging bot.
 
-    Copyright (C) 2009-2012 Andreas Stührk
+    Copyright (C) 2009-2013 Andreas Stührk
 """
 
 from __future__ import with_statement
 import codecs
 import collections
-import functools
+import glob
+import imp
 import os
 from datetime import date, datetime, timedelta
 
-from lxml import cssselect, html
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers.text import IrcLogsLexer
 from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 from twisted.cred.portal import IRealm
-from twisted.enterprise import adbapi
-from twisted.internet import defer
+from twisted.python import log
 from twisted.python.logfile import DailyLogFile
 from twisted.web import xmlrpc
-from twisted.web.client import getPage
 from twisted.web.resource import IResource, NoResource, Resource
 from wokkel import muc
 from wokkel.xmppim import AvailablePresence
@@ -67,56 +65,6 @@ DOC_FOOTER = '''\
 '''
 
 MENSA_URL = "http://www.studentenwerk-karlsruhe.de/en/essen/"
-
-def interaction(func):
-    """Convenient decorator for `t.e.a.ConnectionPool`"""
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        return self.dbpool.runInteraction(
-            functools.partial(func, self),
-            *args, **kwargs
-        )
-    return wrapper
-
-class DatabaseRunner(object):
-    def __init__(self, database):
-        self.dbpool = adbapi.ConnectionPool(
-            "sqlite3", database,
-            check_same_thread=False
-        )
-
-    @interaction
-    def add_message(self, transaction, room_jid, from_, to, message):
-        transaction.execute("""
-            INSERT INTO postponed_messages
-                        (from_, to_, room, message)
-            VALUES      (?, ?, ?, ?)
-        """, (from_, to, room_jid.userhost(), message))
-        return bool(transaction.rowcount)
-
-    @interaction
-    def get_messages(self, transaction, room_jid, name):
-        transaction.execute("""
-            SELECT id, from_, to_, message
-            FROM   postponed_messages
-            WHERE  room = ?
-         """, (room_jid.userhost(), ))
-        name = name.lower()
-        messages = list()
-        to_delete = list()
-        for (id_, from_, to_, message) in transaction:
-            if name.startswith(to_.lower()):
-                to_delete.append(id_)
-                messages.append((from_, message))
-        if to_delete:
-            transaction.execute("""
-                DELETE FROM postponed_messages
-                WHERE       room = ?
-                            AND id IN (%s)""" %
-                                ",".join(('?', ) * len(to_delete)),
-                [room_jid.userhost()] + to_delete
-             )
-        return messages
 
 
 class ChatLogger(object):
@@ -290,88 +238,51 @@ class KITBot(muc.MUCClient, IMMixin):
             self.logger.action(user.nick, body[len('/me '):])
         else:
             self.logger.message(user.nick, body)
-        body_lower = body.strip().lower()
-        nick_lower = self.nick.lower()
-        if body_lower == 'ping':
-            self.groupChat(self.room_jid, 'pong')
-        elif body_lower in ["%s: mensa" % (nick_lower, ),
-                            "%s: mensa heute" % (nick_lower, ),
-                            "%s: mensa morgen" % (nick_lower, ),
-                            "%s: mensa njam" % (nick_lower, )]:
-            days = [1]
-            if u"morgen" in body:
-                days = [2]
-            elif u"njam" in body:
-                days = range(1, 6)
-            d = getPage(MENSA_URL)
-            d.addCallback(process_mensa, self, user, days)
-        elif body_lower.startswith(nick_lower + ": message "):
-            try:
-                (_, _, receiver, message) = body.split(None, 3)
-            except ValueError:
-                pass
-            else:
-                if receiver.endswith(u":"):
-                    # Most likely a syntax error and not part of the nick
-                    receiver = receiver[:-1]
-                self.parent.dbpool.add_message(self.room_jid,
-                                               user.nick, receiver, message)
+        emit("groupchat-received", self, room, user, message)
 
     def receivedSubject(self, room, user, subject):
         self.logger.write_line(
             '-!- Topic for %s: %s' % (room.roomJID.user, subject))
 
-    @defer.inlineCallbacks
     def userJoinedRoom(self, room, user):
         room_name = room.roomJID.userhost()
         self.logger.write_line('-!- %s has joined %s' % (user.nick, room_name))
-        messages = yield self.parent.dbpool.get_messages(self.room_jid,
-                                                         user.nick)
-        for (from_, message) in messages:
-            self.groupChat(
-                self.room_jid,
-                '%s: %s (This message from %s has been postponed.)' %
-                                                    (user.nick, message, from_)
-            )
+        emit("user-joined-room", self, room, user)
 
     def userLeftRoom(self, room, user):
         room_name = room.roomJID.userhost()
         self.logger.write_line('-!- %s has left %s' % (user.nick, room_name))
 
-def scrape_mensa(document, day=1):
-    if day not in xrange(1, 6):
-        raise ValueError("day must be between 1 and 5, got " + str(day))
-    selector = cssselect.CSSSelector(
-        "div#canteen_place_1 div#fragment-c1-%i" % (day, )
-    )
-    meal_selector = cssselect.CSSSelector("span.bg")
-    div = selector(document)[0]
-    for element in div.findall("./table/tr/td"):
-        if element.get("class") == "mensatype":
-            current_line = element.text_content()
-        elif element.get("class") == "mensadata":
-            for meal in meal_selector(element):
-                meal = meal.text_content()
-                if meal.endswith(u" ab"):
-                    meal = meal[:-3]
-                yield (current_line, meal)
 
-def process_mensa(string, bot, user, days):
-    tree = html.fromstring(string)
-    lines = list()
-    for (i, day) in enumerate(days):
-        if len(days) > 1:
-            lines.append("In +%i Tagen:" % (day - 1, ))
-        meals = collections.defaultdict(list)
-        for (line, meal) in scrape_mensa(tree, day):
-            meals[line].append(meal)
+def load_plugins(config, path=None):
+    "Load all Python modules in `path` and call their `init` function."
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "plugins")
+    for plugin_path in glob.glob(os.path.join(path, "*.py")):
+        name = os.path.basename(plugin_path[:-3])
+        try:
+            (fo, pathname, descr) = imp.find_module(name, [path])
+        except (ImportError, SyntaxError):
+            continue
+        plugin = imp.load_module(name, fo, pathname, descr)
+        plugin.init(config.get(name, {}))
 
-        for (line, meals) in sorted(meals.items()):
-            if line in [u"Abend",u"Curry Queen", u"L6 Update", u"Schnitzelbar", u"Cafeteria Heiße Theke"]:
-                continue
-            lines.append("%s: %s" % (line, u", ".join(meals)))
-        if i != (len(days) - 1):
-            lines.append("")
 
-    to = '%s/%s' % (bot.room_jid.userhost(), user.nick)
-    bot.chat(to, '\n'.join(lines))
+class _Observable(object):
+    def __init__(self):
+        self.observers = collections.defaultdict(list)
+
+    def connect(self, signal, callback, *args, **kwargs):
+        self.observers[signal].append((callback, args, kwargs))
+
+    def emit(self, signal, *args):
+        for (callback, cb_args, cb_kwargs) in self.observers[signal]:
+            try:
+                callback(*(args + cb_args), **cb_kwargs)
+            except Exception:
+                log.err()
+
+
+_observable = _Observable()
+connect = _observable.connect
+emit = _observable.emit
