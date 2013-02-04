@@ -29,8 +29,7 @@ from twisted.internet import defer
 from twisted.python.logfile import DailyLogFile
 from twisted.web import xmlrpc
 from twisted.web.client import getPage
-from twisted.web.error import NoResource
-from twisted.web.resource import IResource, Resource
+from twisted.web.resource import IResource, NoResource, Resource
 from wokkel import muc
 from wokkel.xmppim import AvailablePresence
 from zope.interface import implements
@@ -318,8 +317,9 @@ class KITBot(muc.MUCClient, IMMixin):
                 self.parent.dbpool.add_message(self.room_jid,
                                                user.nick, receiver, message)
 
-    def receivedSubject(self, room, body):
-        self.logger.write_line('-!- Topic for %s: %s' % (room.user, body))
+    def receivedSubject(self, room, user, subject):
+        self.logger.write_line(
+            '-!- Topic for %s: %s' % (room.roomJID.user, subject))
 
     @defer.inlineCallbacks
     def userJoinedRoom(self, room, user):
